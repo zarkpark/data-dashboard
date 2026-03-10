@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #1a1a2e; }
+  .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 24px 32px; display: flex; justify-content: space-between; align-items: center; }
+  .header h1 { font-size: 22px; font-weight: 600; }
+  .header .subtitle { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .header .date { font-size: 14px; opacity: 0.85; }
+  .header .db-status { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .header .db-status .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .header .db-status .dot.connected { background: #34d399; }
+  .header .db-status .dot.disconnected { background: #f87171; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; gap: 16px; }
+  .spinner { width: 40px; height: 40px; border: 4px solid #e5e7eb; border-top-color: #667eea; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 15px; color: #6b7280; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .kpi-card { background: white; border-radius: 12px; padding: 20px 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .kpi-card .label { font-size: 13px; color: #6b7280; margin-bottom: 6px; }
+  .kpi-card .value { font-size: 28px; font-weight: 700; }
+  .kpi-card .change { font-size: 13px; margin-top: 6px; }
+  .kpi-card .change.up { color: #10b981; }
+  .kpi-card .change.down { color: #ef4444; }
+  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .chart-card { background: white; border-radius: 12px; padding: 20px 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .chart-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: #374151; }
+  .table-card { background: white; border-radius: 12px; padding: 20px 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 24px; }
+  .table-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: #374151; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; padding: 10px 12px; border-bottom: 2px solid #e5e7eb; color: #6b7280; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; }
+  tr:hover td { background: #f9fafb; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+  .badge.green { background: #d1fae5; color: #065f46; }
+  .badge.yellow { background: #fef3c7; color: #92400e; }
+  .badge.red { background: #fee2e2; color: #991b1b; }
+  .badge.blue { background: #dbeafe; color: #1e40af; }
+  .filter-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+  .filter-bar input { padding: 8px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; outline: none; width: 260px; }
+  .filter-bar input:focus { border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,0.15); }
+  .filter-bar select { padding: 8px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; outline: none; background: white; }
+  .refresh-btn { padding: 8px 16px; border: none; background: #667eea; color: white; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 500; transition: background 0.15s; }
+  .refresh-btn:hover { background: #5a6fd6; }
+  .footer { text-align: center; padding: 16px; font-size: 12px; color: #9ca3af; }
+  @media (max-width: 768px) { .chart-grid { grid-template-columns: 1fr; } .kpi-grid { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+<div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div><div class="loading-text">Supabase에서 데이터를 불러오는 중...</div></div>
+<div class="header"><h1>📊 Data Dashboard</h1><div class="subtitle"><div class="date">2026년 3월 10일 화요일</div><div class="db-status"><span class="dot" id="statusDot"></span><span id="statusText">연결 중...</span></div></div></div>
+<div class="container">
+  <div class="kpi-grid" id="kpiGrid"></div>
+  <div class="chart-grid">
+    <div class="chart-card"><h3>월별 매출 추이</h3><canvas id="revenueChart"></canvas></div>
+    <div class="chart-card"><h3>채널별 트래픽</h3><canvas id="trafficChart"></canvas></div>
+    <div class="chart-card"><h3>일별 가입자 수</h3><canvas id="signupChart"></canvas></div>
+    <div class="chart-card"><h3>카테고리별 매출 비중</h3><canvas id="categoryChart"></canvas></div>
+  </div>
+  <div class="table-card">
+    <h3>최근 주문 내역</h3>
+    <div class="filter-bar">
+      <input type="text" id="searchInput" placeholder="검색 (주문번호, 고객명...)" oninput="filterTable()">
+      <select id="statusFilter" onchange="filterTable()"><option value="">전체 상태</option><option value="완료">완료</option><option value="배송중">배송중</option><option value="준비중">준비중</option><option value="취소">취소</option></select>
+      <button class="refresh-btn" onclick="loadAllData()">🔄 새로고침</button>
+    </div>
+    <table><thead><tr><th>주문번호</th><th>고객명</th><th>상품</th><th>금액</th><th>상태</th><th>일시</th></tr></thead><tbody id="orderTableBody"></tbody></table>
+  </div>
+</div>
+<div class="footer">Powered by <strong>Supabase</strong> · data-dashboard (ap-northeast-2)</div>
+<script>
+const SUPABASE_URL='https://ugyhsddgbauhdjocznau.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVneWhzZGRnYmF1aGRqb2N6bmF1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwOTIxMzYsImV4cCI6MjA4ODY2ODEzNn0.EES4k2HaYtgSwV3ww1H8jYBaqJUTIXXiHDzm7ARpFSM';
+async function supaFetch(t,p=''){const r=await fetch(`${SUPABASE_URL}/rest/v1/${t}?${p}`,{headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,'Content-Type':'application/json'}});if(!r.ok)throw new Error(`Failed ${t}: ${r.status}`);return r.json();}
+let allOrders=[],chartInstances={};
+function renderKPI(d){document.getElementById('kpiGrid').innerHTML=d.map(m=>`<div class="kpi-card"><div class="label">${m.metric_name}</div><div class="value">${m.value}</div><div class="change ${m.change_direction}">${m.change_text}</div></div>`).join('');}
+const statusBadge={'완료':'green','배송중':'blue','준비중':'yellow','취소':'red'};
+function renderTable(d){document.getElementById('orderTableBody').innerHTML=d.map(o=>`<tr><td style="font-weight:500">${o.order_id}</td><td>${o.customer}</td><td>${o.product}</td><td style="font-variant-numeric:tabular-nums">₩ ${o.amount.toLocaleString()}</td><td><span class="badge ${statusBadge[o.status]||''}">${o.status}</span></td><td style="color:#6b7280">${new Date(o.order_date).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}</td></tr>`).join('');}
+function filterTable(){const q=document.getElementById('searchInput').value.toLowerCase(),s=document.getElementById('statusFilter').value;renderTable(allOrders.filter(o=>{const mt=!q||o.order_id.toLowerCase().includes(q)||o.customer.includes(q)||o.product.includes(q);return mt&&(!s||o.status===s);}));}
+const cOpts={responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,grid:{color:'#f3f4f6'}},x:{grid:{display:false}}}};
+function renderRevenueChart(d){if(chartInstances.r)chartInstances.r.destroy();chartInstances.r=new Chart(document.getElementById('revenueChart'),{type:'bar',data:{labels:d.map(x=>x.month),datasets:[{label:'매출',data:d.map(x=>x.revenue),backgroundColor:'rgba(102,126,234,0.75)',borderRadius:6,borderSkipped:false}]},options:{...cOpts,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`₩ ${c.parsed.y}억`}}}}});}
+function renderTrafficChart(d){if(chartInstances.t)chartInstances.t.destroy();chartInstances.t=new Chart(document.getElementById('trafficChart'),{type:'doughnut',data:{labels:d.map(x=>x.channel),datasets:[{data:d.map(x=>x.percentage),backgroundColor:['#667eea','#764ba2','#f093fb','#4fd1c5','#f6ad55'],borderWidth:0}]},options:{responsive:true,plugins:{legend:{position:'bottom',labels:{padding:16,usePointStyle:true}}},cutout:'65%'}});}
+function renderSignupChart(d){if(chartInstances.s)chartInstances.s.destroy();chartInstances.s=new Chart(document.getElementById('signupChart'),{type:'line',data:{labels:d.map(x=>{const t=new Date(x.date);return `${t.getMonth()+1}/${t.getDate()}`;}),datasets:[{label:'가입자',data:d.map(x=>x.count),borderColor:'#667eea',backgroundColor:'rgba(102,126,234,0.1)',fill:true,tension:0.4,pointBackgroundColor:'#667eea',pointRadius:4}]},options:cOpts});}
+function renderCategoryChart(d){if(chartInstances.c)chartInstances.c.destroy();chartInstances.c=new Chart(document.getElementById('categoryChart'),{type:'pie',data:{labels:d.map(x=>x.category),datasets:[{data:d.map(x=>x.percentage),backgroundColor:['#667eea','#764ba2','#f093fb','#4fd1c5','#f6ad55','#a0aec0'],borderWidth:0}]},options:{responsive:true,plugins:{legend:{position:'bottom',labels:{padding:16,usePointStyle:true}}}}});}
+const FB={kpi:[{metric_name:'총 매출',value:'₩ 2.4억',change_text:'▲ 12.5% vs 지난달',change_direction:'up'},{metric_name:'활성 사용자 (MAU)',value:'38,420',change_text:'▲ 8.3% vs 지난달',change_direction:'up'},{metric_name:'전환율',value:'3.8%',change_text:'▲ 0.4%p vs 지난달',change_direction:'up'},{metric_name:'이탈률',value:'2.1%',change_text:'▼ 0.3%p vs 지난달',change_direction:'down'}],revenue:[{month:'10월',revenue:1.6},{month:'11월',revenue:1.8},{month:'12월',revenue:2.1},{month:'1월',revenue:1.9},{month:'2월',revenue:2.15},{month:'3월',revenue:2.4}],traffic:[{channel:'Organic Search',percentage:35},{channel:'Direct',percentage:25},{channel:'Social',percentage:20},{channel:'Referral',percentage:12},{channel:'Paid',percentage:8}],signups:[{date:'2026-03-01',count:120},{date:'2026-03-02',count:145},{date:'2026-03-03',count:98},{date:'2026-03-04',count:167},{date:'2026-03-05',count:182},{date:'2026-03-06',count:155},{date:'2026-03-07',count:130},{date:'2026-03-08',count:195},{date:'2026-03-09',count:210},{date:'2026-03-10',count:178}],categories:[{category:'가구',percentage:42},{category:'조명',percentage:18},{category:'패브릭',percentage:15},{category:'수납',percentage:12},{category:'욕실',percentage:8},{category:'기타',percentage:5}],orders:[{order_id:'ORD-20260310-001',customer:'김지현',product:'프리미엄 소파 세트',amount:1250000,status:'완료',order_date:'2026-03-10T14:23:00'},{order_id:'ORD-20260310-002',customer:'이민수',product:'원목 식탁 4인용',amount:890000,status:'배송중',order_date:'2026-03-10T13:55:00'},{order_id:'ORD-20260310-003',customer:'박서연',product:'메모리폼 매트리스 Q',amount:650000,status:'준비중',order_date:'2026-03-10T12:40:00'},{order_id:'ORD-20260310-004',customer:'최영호',product:'북유럽 조명 3종',amount:180000,status:'완료',order_date:'2026-03-10T11:15:00'},{order_id:'ORD-20260310-005',customer:'정하늘',product:'수납장 1200',amount:420000,status:'취소',order_date:'2026-03-10T10:32:00'},{order_id:'ORD-20260309-006',customer:'강수빈',product:'패브릭 암체어',amount:380000,status:'완료',order_date:'2026-03-09T18:20:00'},{order_id:'ORD-20260309-007',customer:'윤도현',product:'세라믹 식기 세트',amount:95000,status:'배송중',order_date:'2026-03-09T16:45:00'},{order_id:'ORD-20260309-008',customer:'신미래',product:'커튼 & 블라인드 세트',amount:210000,status:'완료',order_date:'2026-03-09T15:10:00'},{order_id:'ORD-20260309-009',customer:'오재민',product:'스탠딩 데스크 1400',amount:520000,status:'배송중',order_date:'2026-03-09T13:28:00'},{order_id:'ORD-20260309-010',customer:'한소희',product:'욕실 수납 선반',amount:75000,status:'준비중',order_date:'2026-03-09T11:50:00'},{order_id:'ORD-20260308-011',customer:'임재현',product:'LED 간접조명 세트',amount:145000,status:'완료',order_date:'2026-03-08T17:35:00'},{order_id:'ORD-20260308-012',customer:'송은별',product:'리클라이너 소파',amount:980000,status:'완료',order_date:'2026-03-08T14:22:00'}]};
+async function loadAllData(){const ov=document.getElementById('loadingOverlay'),dot=document.getElementById('statusDot'),st=document.getElementById('statusText');ov.style.display='flex';let k,r,t,s,c,o,ok=false;try{[k,r,t,s,c,o]=await Promise.all([supaFetch('kpi_metrics','order=id'),supaFetch('monthly_revenue','order=id'),supaFetch('traffic_channels','order=id'),supaFetch('daily_signups','order=date'),supaFetch('category_revenue','order=id'),supaFetch('orders','order=order_date.desc')]);ok=true;}catch(e){console.warn('Fallback:',e.message);k=FB.kpi;r=FB.revenue;t=FB.traffic;s=FB.signups;c=FB.categories;o=FB.orders;}renderKPI(k);renderRevenueChart(r);renderTrafficChart(t);renderSignupChart(s);renderCategoryChart(c);allOrders=o;renderTable(o);dot.className=ok?'dot connected':'dot disconnected';st.textContent=ok?'Supabase 연결됨':'로컬 샘플 데이터 (DB 연결 대기중)';ov.style.display='none';}
+loadAllData();
+</script>
+</body>
+</html>
